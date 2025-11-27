@@ -1,0 +1,20 @@
+{
+  "name": "nlp-analyzer",
+  "version": "1.0.0",
+  "description": "Ekşi Sözlük NLP Analiz Uygulaması - Duygu ve Tema Analizi",
+  "main": "app.py",
+  "scripts": {
+    "start": "python app.py",
+    "dev": "set FLASK_ENV=development && python app.py"
+  },
+  "keywords": [
+    "nlp",
+    "sentiment-analysis",
+    "theme-analysis",
+    "turkish-nlp",
+    "eksi-sozluk",
+    "flask"
+  ],
+  "author": "Your Name",
+  "license": "MIT"
+}

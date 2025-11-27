@@ -1,0 +1,199 @@
+<!DOCTYPE html>
+<html lang="tr">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Ekşi Sözlük NLP Analiz - Duygu ve Tema Analizi</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+</head>
+<body>
+    <!-- Header -->
+    <header class="header">
+        <div class="container">
+            <div class="header-content">
+                <div class="logo">
+                    <i class="fas fa-brain"></i>
+                    <h1>Ekşi Sözlük <span>NLP Analiz</span></h1>
+                </div>
+                <div class="header-subtitle">
+                    <p>Duygu ve Tema Analizi ile Entry'leri İnceleyin</p>
+                </div>
+            </div>
+        </div>
+    </header>
+
+    <!-- Main Content -->
+    <main class="main-content">
+        <div class="container">
+            
+            <!-- Search Section -->
+            <section class="search-section">
+                <div class="search-container">
+                    <div class="search-box">
+                        <i class="fas fa-search search-icon"></i>
+                        <input 
+                            type="text" 
+                            id="searchInput" 
+                            class="search-input" 
+                            placeholder="Başlık ara... (örn: yazılım, teknoloji, spor)"
+                            autocomplete="off"
+                        >
+                        <button id="searchBtn" class="search-btn">
+                            <i class="fas fa-arrow-right"></i>
+                        </button>
+                    </div>
+                    
+                    <!-- Autocomplete Dropdown -->
+                    <div id="autocompleteDropdown" class="autocomplete-dropdown hidden"></div>
+                    
+                    <!-- Trending Topics -->
+                    <div class="trending-topics">
+                        <i class="fas fa-fire"></i>
+                        <span>Popüler:</span>
+                        <div id="trendingList" class="trending-list">
+                            <span class="trending-item skeleton">Yükleniyor...</span>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Loading Indicator -->
+            <div id="loadingIndicator" class="loading-indicator hidden">
+                <div class="spinner"></div>
+                <p>Entry'ler yükleniyor ve analiz ediliyor...</p>
+            </div>
+
+            <!-- Error Message -->
+            <div id="errorMessage" class="error-message hidden">
+                <i class="fas fa-exclamation-triangle"></i>
+                <p id="errorText"></p>
+            </div>
+
+            <!-- Results Section -->
+            <section id="resultsSection" class="results-section hidden">
+                
+                <!-- Topic Header -->
+                <div class="topic-header">
+                    <h2 id="topicTitle" class="topic-title"></h2>
+                    <div class="topic-meta">
+                        <span id="entryCount" class="meta-item">
+                            <i class="fas fa-comments"></i>
+                            <span>0 entry</span>
+                        </span>
+                        <span id="currentPage" class="meta-item">
+                            <i class="fas fa-file-alt"></i>
+                            <span>Sayfa 1</span>
+                        </span>
+                    </div>
+                </div>
+
+                <!-- Filters and Actions -->
+                <div class="filters-bar">
+                    <div class="filter-group">
+                        <label for="sentimentFilter">Duygu Filtresi:</label>
+                        <select id="sentimentFilter" class="filter-select">
+                            <option value="all">Tümü</option>
+                            <option value="positive">Pozitif</option>
+                            <option value="neutral">Nötr</option>
+                            <option value="negative">Negatif</option>
+                        </select>
+                    </div>
+                    
+                    <div class="filter-group">
+                        <label for="themeFilter">Tema Filtresi:</label>
+                        <select id="themeFilter" class="filter-select">
+                            <option value="all">Tümü</option>
+                        </select>
+                    </div>
+
+                    <button id="analyzeAllBtn" class="btn btn-primary">
+                        <i class="fas fa-chart-line"></i>
+                        Tümünü Analiz Et
+                    </button>
+                </div>
+
+                <!-- Entries Container -->
+                <div id="entriesContainer" class="entries-container">
+                    <!-- Entries will be dynamically inserted here -->
+                </div>
+
+                <!-- Pagination -->
+                <div class="pagination" id="pagination">
+                    <button id="prevPage" class="pagination-btn" disabled>
+                        <i class="fas fa-chevron-left"></i>
+                        Önceki
+                    </button>
+                    <div id="pageNumbers" class="page-numbers"></div>
+                    <button id="nextPage" class="pagination-btn">
+                        Sonraki
+                        <i class="fas fa-chevron-right"></i>
+                    </button>
+                </div>
+
+            </section>
+
+            <!-- Stats Dashboard (Optional) -->
+            <section id="statsSection" class="stats-section hidden">
+                <h3 class="stats-title">
+                    <i class="fas fa-chart-pie"></i>
+                    Analiz İstatistikleri
+                </h3>
+                <div class="stats-grid">
+                    <div class="stat-card">
+                        <div class="stat-icon positive">
+                            <i class="fas fa-smile"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Pozitif</h4>
+                            <p id="positiveCount">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon neutral">
+                            <i class="fas fa-meh"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Nötr</h4>
+                            <p id="neutralCount">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon negative">
+                            <i class="fas fa-frown"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Negatif</h4>
+                            <p id="negativeCount">0</p>
+                        </div>
+                    </div>
+                    <div class="stat-card">
+                        <div class="stat-icon theme">
+                            <i class="fas fa-tags"></i>
+                        </div>
+                        <div class="stat-content">
+                            <h4>Toplam Tema</h4>
+                            <p id="themeCount">0</p>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+        </div>
+    </main>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="container">
+            <p>&copy; 2025 Ekşi Sözlük NLP Analiz | Doğal Dil İşleme Projesi</p>
+            <p class="footer-note">
+                <i class="fas fa-info-circle"></i>
+                Bu uygulama eğitim amaçlıdır. Analizler simüle edilmiştir.
+            </p>
+        </div>
+    </footer>
+
+    <!-- Scripts -->
+    <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

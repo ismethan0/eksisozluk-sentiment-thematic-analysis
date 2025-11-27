@@ -1,0 +1,42 @@
+# Ekşi Sözlük NLP Analiz Uygulaması
+# Python Gereksinimleri
+
+# Web Framework
+Flask==3.0.0
+flask-cors==4.0.0
+
+# HTTP İstekleri
+requests==2.31.0
+
+# Environment Variables
+python-dotenv==1.0.0
+
+# OPSIYONEL: NLP Kütüphaneleri (Kendi modellerinizi ekleyeceğinizde)
+# Aşağıdaki satırları kendi ihtiyacınıza göre açabilirsiniz:
+
+# Transformers ve PyTorch (Duygu analizi için BERT vb.)
+# torch==2.1.0
+# transformers==4.35.0
+
+# NLP Araçları
+# nltk==3.8.1
+# spacy==3.7.2
+
+# Türkçe NLP
+# zemberek-python==0.1.3
+
+# Machine Learning
+# scikit-learn==1.3.2
+# numpy==1.26.2
+# pandas==2.1.3
+
+# Text Processing
+# gensim==4.3.2
+
+# API ve Database (İhtiyaç halinde)
+# pymongo==4.6.0
+# redis==5.0.1
+
+# Testing (Geliştirme için)
+# pytest==7.4.3
+# pytest-flask==1.3.0
