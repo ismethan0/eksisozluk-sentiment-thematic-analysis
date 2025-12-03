@@ -36,6 +36,9 @@ class EksiSozlukService:
             response.raise_for_status()
             
             data = response.json()
+            # API { thread_count, threads } formatında döndürüyor
+            if isinstance(data, dict) and 'threads' in data:
+                return data['threads']
             return data if data else []
         except requests.RequestException as e:
             print(f"Arama hatası: {e}")

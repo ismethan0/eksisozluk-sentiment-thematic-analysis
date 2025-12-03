@@ -11,12 +11,18 @@ requests==2.31.0
 # Environment Variables
 python-dotenv==1.0.0
 
-# OPSIYONEL: NLP Kütüphaneleri (Kendi modellerinizi ekleyeceğinizde)
-# Aşağıdaki satırları kendi ihtiyacınıza göre açabilirsiniz:
+# NLP Kütüphaneleri (Duygu Analizi)
+torch>=2.0.0
+transformers>=4.35.0
+sentence-transformers>=2.0.0
+sentencepiece>=0.1.99
 
-# Transformers ve PyTorch (Duygu analizi için BERT vb.)
-# torch==2.1.0
-# transformers==4.35.0
+# OPSIYONEL: Tema Analizi (BERTopic - Python 3.13'te hdbscan C++ derlemesi gerektirir)
+# Kullanmak için Visual C++ Build Tools gerekli:
+# https://visualstudio.microsoft.com/visual-cpp-build-tools/
+# bertopic>=0.16.0
+# umap-learn>=0.5.0
+# hdbscan>=0.8.0
 
 # NLP Araçları
 # nltk==3.8.1

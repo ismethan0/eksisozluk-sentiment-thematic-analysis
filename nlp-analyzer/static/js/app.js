@@ -111,20 +111,36 @@ async function loadTrendingTopics() {
 
         if (data.success && data.data && data.data.length > 0) {
             trendingList.innerHTML = '';
-            data.data.slice(0, 5).forEach(topic => {
-                const span = document.createElement('span');
-                span.className = 'trending-item';
-                span.textContent = topic.title || topic;
-                span.addEventListener('click', () => {
-                    searchInput.value = topic.title || topic;
-                    handleSearch();
+            data.data.slice(0, 8).forEach(topic => {
+                const div = document.createElement('div');
+                div.className = 'trending-item-sidebar';
+                div.textContent = topic.title || topic;
+
+                // Slug'ı sakla ve direkt yükle
+                div.addEventListener('click', () => {
+                    // Eğer slug tam URL ise, slug kısmını çıkar
+                    let slug = topic.slug;
+                    if (slug && slug.includes('eksisozluk.com/')) {
+                        // https://eksisozluk.com/baslik-adi--123456 -> baslik-adi--123456
+                        slug = slug.split('eksisozluk.com/')[1];
+                    }
+
+                    // Slug varsa direkt yükle, yoksa arama yap
+                    if (slug) {
+                        loadTopicBySlug(slug);
+                    } else {
+                        searchInput.value = topic.title || topic;
+                        handleSearch();
+                    }
                 });
-                trendingList.appendChild(span);
+                trendingList.appendChild(div);
             });
+        } else {
+            trendingList.innerHTML = '<div class="trending-item-sidebar">Gündem yüklenemedi</div>';
         }
     } catch (error) {
         console.error('Gündem yüklenemedi:', error);
-        trendingList.innerHTML = '<span class="trending-item">Gündem yüklenemedi</span>';
+        trendingList.innerHTML = '<div class="trending-item-sidebar">Gündem yüklenemedi</div>';
     }
 }
 
@@ -193,6 +209,20 @@ async function handleSearch() {
     await loadTopic(slug, 1);
 }
 
+// Load topic directly by slug (for trending/popular topics)
+async function loadTopicBySlug(slug) {
+    hideElement(resultsSection);
+    hideElement(statsSection);
+    hideElement(errorMessage);
+    showLoading();
+
+    // Slug'dan başlık adını çıkar ve search input'a yaz
+    const titleFromSlug = slug.split('--')[0].replace(/-/g, ' ');
+    searchInput.value = titleFromSlug;
+
+    await loadTopic(slug, 1);
+}
+
 // Load topic entries
 async function loadTopic(slug, page = 1) {
     try {
@@ -255,6 +285,31 @@ function renderEntries(entries) {
     });
 
     updatePagination();
+}
+
+// Show skeleton loading for entries
+function showEntriesSkeleton(count = 10) {
+    entriesContainer.innerHTML = '';
+
+    for (let i = 0; i < count; i++) {
+        const skeleton = document.createElement('div');
+        skeleton.className = 'entry-card skeleton-card';
+        skeleton.innerHTML = `
+            <div class="entry-header">
+                <div class="skeleton-author skeleton"></div>
+                <div class="skeleton-date skeleton"></div>
+            </div>
+            <div class="entry-content">
+                <div class="skeleton-line skeleton"></div>
+                <div class="skeleton-line skeleton"></div>
+                <div class="skeleton-line skeleton" style="width: 80%;"></div>
+            </div>
+            <div class="entry-footer">
+                <div class="skeleton-button skeleton"></div>
+            </div>
+        `;
+        entriesContainer.appendChild(skeleton);
+    }
 }
 
 // Create entry card
@@ -364,6 +419,9 @@ async function analyzeEntry(entry, index) {
 function renderAnalysisResults(container, sentiment, theme) {
     container.innerHTML = '';
 
+    // Debug log
+    console.log('📊 Analiz sonuçları:', { sentiment, theme });
+
     // Sentiment badge
     const sentimentBadge = document.createElement('div');
     sentimentBadge.className = `sentiment-badge ${sentiment.sentiment}`;
@@ -392,12 +450,31 @@ function renderAnalysisResults(container, sentiment, theme) {
     themesContainer.style.flexWrap = 'wrap';
 
     if (theme.themes && theme.themes.length > 0) {
-        theme.themes.forEach(t => {
+        theme.themes.forEach((t, idx) => {
             const themeBadge = document.createElement('div');
             themeBadge.className = 'theme-badge';
-            themeBadge.innerHTML = `<i class="fas fa-tag"></i> ${t}`;
+
+            // Tema skorunu göster
+            const score = theme.scores && theme.scores[t]
+                ? ` (${(theme.scores[t] * 100).toFixed(0)}%)`
+                : '';
+
+            themeBadge.innerHTML = `<i class="fas fa-tag"></i> ${t}${score}`;
+
+            // Ana temayı vurgula
+            if (idx === 0) {
+                themeBadge.style.fontWeight = 'bold';
+                themeBadge.style.borderWidth = '2px';
+            }
+
             themesContainer.appendChild(themeBadge);
         });
+    } else {
+        // Fallback - eğer themes boşsa main_topic göster
+        const themeBadge = document.createElement('div');
+        themeBadge.className = 'theme-badge';
+        themeBadge.innerHTML = `<i class="fas fa-tag"></i> ${theme.main_topic || 'Genel'}`;
+        themesContainer.appendChild(themeBadge);
     }
 
     container.appendChild(sentimentBadge);
@@ -432,8 +509,17 @@ async function analyzeAllEntries() {
             throw new Error(data.error || 'Toplu analiz başarısız');
         }
 
+        console.log('Batch analysis response:', data);
+
+        // API'den gelen data formatı: { success: true, data: { summary: {...}, entries: [...] } }
+        const results = data.data.entries || data.data || [];
+
+        if (!Array.isArray(results)) {
+            throw new Error('API geçersiz format döndürdü');
+        }
+
         // Update UI with results
-        data.data.forEach((result, index) => {
+        results.forEach((result, index) => {
             const analysisSection = document.getElementById(`analysis-${index}`);
             if (analysisSection && result.sentiment && result.theme) {
                 analyzedEntries.set(index, result);
@@ -441,8 +527,13 @@ async function analyzeAllEntries() {
             }
         });
 
-        // Update stats and show
-        updateStats();
+        // Update stats with summary data if available
+        if (data.data.summary) {
+            updateStatsFromSummary(data.data.summary);
+        } else {
+            updateStats();
+        }
+
         showElement(statsSection);
 
         analyzeAllBtn.innerHTML = '<i class="fas fa-check"></i> Tümü Analiz Edildi';
@@ -453,6 +544,22 @@ async function analyzeAllEntries() {
         analyzeAllBtn.innerHTML = '<i class="fas fa-chart-line"></i> Tümünü Analiz Et';
         analyzeAllBtn.disabled = false;
     }
+}
+
+// Update statistics from API summary
+function updateStatsFromSummary(summary) {
+    const sentimentDist = summary.sentiment_distribution || {};
+    const themeDist = summary.theme_distribution || {};
+
+    // Sentiment counts - API'den gelen label'lar büyük harf (POSITIVE, NEGATIVE, NEUTRAL)
+    const positive = sentimentDist.positive || sentimentDist.POSITIVE || sentimentDist.Positive || 0;
+    const neutral = sentimentDist.neutral || sentimentDist.NEUTRAL || sentimentDist.Neutral || 0;
+    const negative = sentimentDist.negative || sentimentDist.NEGATIVE || sentimentDist.Negative || 0;
+
+    document.getElementById('positiveCount').textContent = positive;
+    document.getElementById('neutralCount').textContent = neutral;
+    document.getElementById('negativeCount').textContent = negative;
+    document.getElementById('themeCount').textContent = Object.keys(themeDist).length;
 }
 
 // Update statistics
@@ -535,6 +642,12 @@ function updateThemeFilter() {
 // Change page
 async function changePage(page) {
     if (page < 1 || !currentTopic) return;
+
+    // Show skeleton loading
+    showEntriesSkeleton(10);
+
+    // Scroll to entries section
+    entriesContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
     await loadTopic(currentTopic, page);
 }

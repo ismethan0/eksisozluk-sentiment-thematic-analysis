@@ -27,48 +27,61 @@
     <main class="main-content">
         <div class="container">
             
-            <!-- Search Section -->
-            <section class="search-section">
-                <div class="search-container">
-                    <div class="search-box">
-                        <i class="fas fa-search search-icon"></i>
-                        <input 
-                            type="text" 
-                            id="searchInput" 
-                            class="search-input" 
-                            placeholder="Başlık ara... (örn: yazılım, teknoloji, spor)"
-                            autocomplete="off"
-                        >
-                        <button id="searchBtn" class="search-btn">
-                            <i class="fas fa-arrow-right"></i>
-                        </button>
-                    </div>
-                    
-                    <!-- Autocomplete Dropdown -->
-                    <div id="autocompleteDropdown" class="autocomplete-dropdown hidden"></div>
-                    
-                    <!-- Trending Topics -->
-                    <div class="trending-topics">
-                        <i class="fas fa-fire"></i>
-                        <span>Popüler:</span>
-                        <div id="trendingList" class="trending-list">
-                            <span class="trending-item skeleton">Yükleniyor...</span>
+            <!-- Main Layout with Sidebar -->
+            <div class="main-layout">
+                
+                <!-- Sidebar - Popüler Konular -->
+                <aside class="sidebar">
+                    <div class="sidebar-card">
+                        <h3 class="sidebar-title">
+                            <i class="fas fa-fire"></i>
+                            Popüler Konular
+                        </h3>
+                        <div id="trendingList" class="trending-list-sidebar">
+                            <div class="trending-item-sidebar skeleton">
+                                <i class="fas fa-spinner fa-spin"></i>
+                                Yükleniyor...
+                            </div>
                         </div>
                     </div>
-                </div>
-            </section>
+                </aside>
+                
+                <!-- Main Content Area -->
+                <div class="content-area">
+            
+                    <!-- Search Section -->
+                    <section class="search-section">
+                        <div class="search-container">
+                            <div class="search-box">
+                                <i class="fas fa-search search-icon"></i>
+                                <input 
+                                    type="text" 
+                                    id="searchInput" 
+                                    class="search-input" 
+                                    placeholder="Başlık ara... (örn: yazılım, teknoloji, spor)"
+                                    autocomplete="off"
+                                >
+                                <button id="searchBtn" class="search-btn">
+                                    <i class="fas fa-arrow-right"></i>
+                                </button>
+                            </div>
+                            
+                            <!-- Autocomplete Dropdown -->
+                            <div id="autocompleteDropdown" class="autocomplete-dropdown hidden"></div>
+                        </div>
+                    </section>
 
-            <!-- Loading Indicator -->
-            <div id="loadingIndicator" class="loading-indicator hidden">
-                <div class="spinner"></div>
-                <p>Entry'ler yükleniyor ve analiz ediliyor...</p>
-            </div>
+                    <!-- Loading Indicator -->
+                    <div id="loadingIndicator" class="loading-indicator hidden">
+                        <div class="spinner"></div>
+                        <p>Entry'ler yükleniyor ve analiz ediliyor...</p>
+                    </div>
 
-            <!-- Error Message -->
-            <div id="errorMessage" class="error-message hidden">
-                <i class="fas fa-exclamation-triangle"></i>
-                <p id="errorText"></p>
-            </div>
+                    <!-- Error Message -->
+                    <div id="errorMessage" class="error-message hidden">
+                        <i class="fas fa-exclamation-triangle"></i>
+                        <p id="errorText"></p>
+                    </div>
 
             <!-- Results Section -->
             <section id="resultsSection" class="results-section hidden">
@@ -179,6 +192,8 @@
                 </div>
             </section>
 
+                </div><!-- .content-area -->
+            </div><!-- .main-layout -->
         </div>
     </main>
 

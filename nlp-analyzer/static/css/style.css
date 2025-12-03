@@ -122,6 +122,98 @@ body {
     padding: var(--spacing-xl) 0;
 }
 
+/* Main Layout - Sidebar + Content */
+.main-layout {
+    display: grid;
+    grid-template-columns: 280px 1fr;
+    gap: var(--spacing-lg);
+    align-items: start;
+}
+
+@media (max-width: 968px) {
+    .main-layout {
+        grid-template-columns: 1fr;
+    }
+    
+    .sidebar {
+        order: 2;
+    }
+    
+    .content-area {
+        order: 1;
+    }
+}
+
+/* ==========================================
+   Sidebar - Popüler Konular
+   ========================================== */
+.sidebar {
+    position: sticky;
+    top: 120px;
+}
+
+.sidebar-card {
+    background: var(--card-bg);
+    padding: var(--spacing-md);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-md);
+}
+
+.sidebar-title {
+    font-size: 1.1rem;
+    font-weight: 600;
+    color: var(--text-primary);
+    margin-bottom: var(--spacing-md);
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-xs);
+}
+
+.sidebar-title i {
+    color: var(--primary-color);
+}
+
+.trending-list-sidebar {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-xs);
+}
+
+.trending-item-sidebar {
+    padding: var(--spacing-sm);
+    background: var(--bg-color);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    font-size: 0.9rem;
+    color: var(--text-primary);
+    border-left: 3px solid transparent;
+}
+
+.trending-item-sidebar:hover {
+    background: #e8f5e9;
+    border-left-color: var(--primary-color);
+    transform: translateX(4px);
+}
+
+.trending-item-sidebar.skeleton {
+    cursor: default;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.5;
+    }
+}
+
+.content-area {
+    min-width: 0;
+}
+
 /* ==========================================
    Search Section
    ========================================== */
@@ -218,45 +310,6 @@ body {
 
 .autocomplete-item:hover {
     background-color: var(--bg-color);
-}
-
-/* Trending Topics */
-.trending-topics {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-sm);
-    flex-wrap: wrap;
-}
-
-.trending-topics i {
-    color: #e74c3c;
-}
-
-.trending-topics > span {
-    color: var(--text-secondary);
-    font-weight: 500;
-}
-
-.trending-list {
-    display: flex;
-    gap: var(--spacing-xs);
-    flex-wrap: wrap;
-}
-
-.trending-item {
-    padding: var(--spacing-xs) var(--spacing-sm);
-    background: var(--bg-color);
-    border-radius: var(--radius-sm);
-    font-size: 0.9rem;
-    cursor: pointer;
-    transition: all var(--transition-fast);
-    border: 1px solid var(--border-color);
-}
-
-.trending-item:hover {
-    background: var(--primary-color);
-    color: white;
-    border-color: var(--primary-color);
 }
 
 /* ==========================================
@@ -658,6 +711,51 @@ body {
 
 .btn-primary:hover {
     background: var(--primary-dark);
+}
+
+/* ==========================================
+   Skeleton Loading
+   ========================================== */
+.skeleton-card {
+    animation: none;
+    pointer-events: none;
+}
+
+.skeleton {
+    background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
+    background-size: 200% 100%;
+    animation: loading 1.5s ease-in-out infinite;
+    border-radius: var(--radius-sm);
+}
+
+@keyframes loading {
+    0% {
+        background-position: 200% 0;
+    }
+    100% {
+        background-position: -200% 0;
+    }
+}
+
+.skeleton-author {
+    width: 150px;
+    height: 20px;
+}
+
+.skeleton-date {
+    width: 120px;
+    height: 18px;
+}
+
+.skeleton-line {
+    height: 16px;
+    margin-bottom: 8px;
+    width: 100%;
+}
+
+.skeleton-button {
+    width: 100px;
+    height: 32px;
 }
 
 /* ==========================================
