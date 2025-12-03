@@ -6,6 +6,7 @@ Gerçek transformer modelleriyle duygu ve tema analizi
 import os
 import torch
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
+from transformers.utils import logging as hf_logging
 
 
 class NLPService:
@@ -14,6 +15,17 @@ class NLPService:
     def __init__(self):
         """Servis başlatıcı - Gerçek modelleri yükle"""
         print("🔄 Loading NLP models...")
+
+        # Transformers log seviyesini kontrol et (varsayılan ERROR)
+        log_level = os.getenv('HF_LOG_LEVEL', 'ERROR').upper()
+        if log_level == 'ERROR':
+            hf_logging.set_verbosity_error()
+        elif log_level == 'WARNING':
+            hf_logging.set_verbosity_warning()
+        elif log_level == 'INFO':
+            hf_logging.set_verbosity_info()
+        else:
+            hf_logging.set_verbosity_warning()
 
         # Bu dosyanın konumuna göre ../models dizinini belirle
         base_dir = os.path.dirname(os.path.abspath(__file__))
@@ -85,6 +97,17 @@ class NLPService:
         except Exception as e:
             print(f"❌ Error loading models: {e}")
             raise
+
+        # Basit Türkçe duygu sözlüğü (yüksek etki eden anahtarlar)
+        self.positive_lexicon = {
+            'tebrik', 'tebrikler', 'tebrik ederim', 'tebrik ediyorum', 'harika', 'mükemmel', 'süper',
+            'başarılı', 'şahane', 'muhteşem', 'beğendim', 'memnun', 'iyi', 'güzel', 'takdir', 'takdir ediyorum',
+            'olumlu', 'pozitif', 'seyirlik', 'efsane', 'kaliteli'
+        }
+        self.negative_lexicon = {
+            'rezalet', 'berbat', 'kötü', 'feci', 'iğrenç', 'nefret', 'beğenmedim', 'pişman', 'yetersiz',
+            'olumsuz', 'negatif', 'vasat', 'saçma', 'korkunç', 'problem', 'sorun', 'arızalı', 'şikayet'
+        }
         
     def analyze_sentiment(self, text: str) -> dict:
         """
@@ -102,35 +125,84 @@ class NLPService:
             }
         """
         try:
-            # Basit karakter bazlı kesme (token değil ama pratik)
-            if len(text) > 512:
-                text = text[:512]
-            
-            # Model ile duygu analizi yap
-            result = self.sentiment_pipeline(text)[0]
-            
-            # Model çıktısını normalize et
-            label = result['label'].lower()
-            confidence = float(result['score'])
-            
-            # Sentiment etiketini standartlaştır
-            if 'pos' in label or 'olumlu' in label:
-                sentiment = 'positive'
-                score = confidence
-            elif 'neg' in label or 'olumsuz' in label:
-                sentiment = 'negative'
-                score = -confidence
+            # Ön işleme: bkz referansları, URL'ler, tekrarlı boşluklar
+            text = self._preprocess_for_sentiment(text)
+
+            # Token bazlı kesme (sentiment tokenizer kullan)
+            try:
+                tok = self.sentiment_pipeline.tokenizer
+                tokens = tok.encode(text, add_special_tokens=True)
+                if len(tokens) > 512:
+                    tokens = tokens[-512:]
+                    text = tok.decode(tokens, skip_special_tokens=True)
+            except Exception:
+                # Her ihtimale karşı karakter kesme
+                if len(text) > 1024:
+                    text = text[-1024:]
+
+            # Cümle bazlı değerlendirme (çoğunluk + son cümleye ağırlık)
+            sentences = self._split_sentences(text)
+            # Son 5 cümleyi kullan (uzun metinlerde hız için)
+            sentences = sentences[-5:] if len(sentences) > 5 else sentences
+            inputs = sentences if sentences else [text]
+
+            pipe_out = self.sentiment_pipeline(inputs)
+
+            # Normalize etiket
+            def norm(res):
+                lbl = res['label'].lower()
+                conf = float(res['score'])
+                if 'pos' in lbl or 'olumlu' in lbl or 'positive' in lbl:
+                    return 'positive', conf
+                if 'neg' in lbl or 'olumsuz' in lbl or 'negative' in lbl:
+                    return 'negative', conf
+                return 'neutral', 0.5
+
+            # Oylama: her cümle için skor topla, son cümleye 1.5x ağırlık
+            votes = {'positive': 0.0, 'negative': 0.0, 'neutral': 0.0}
+            best_res = None
+            best_sent = 'neutral'
+            best_conf = 0.5
+            for i, res in enumerate(pipe_out):
+                s, c = norm(res)
+                w = 1.5 if i == len(pipe_out) - 1 and len(pipe_out) > 1 else 1.0
+                votes[s] += c * w
+                # En güçlü tek karar adayı
+                if (best_res is None) or (c > best_conf):
+                    best_res = res
+                    best_sent = s
+                    best_conf = c
+
+            # Oy toplamına göre nihai duygu
+            final_sent = max(votes.items(), key=lambda kv: kv[1])[0]
+            # Eğer oy toplamı ile en güçlü tek karar çelişirse ve fark küçükse son cümleyi tercih et
+            if final_sent != best_sent and (abs(votes[final_sent] - votes[best_sent]) < 0.2):
+                final_sent = best_sent
+                final_conf = best_conf
             else:
-                sentiment = 'neutral'
-                score = 0.0
-            
+                final_conf = min(0.99, max(0.51, votes[final_sent] / max(1.0, len(pipe_out))))
+
+            # Sözlük tabanlı düzeltme (çok kuvvetli ipuçlarında)
+            lex_p, lex_n = self._lexicon_counts(inputs[-1] if inputs else text)
+            if final_sent == 'negative' and lex_p >= 2 and lex_n == 0 and final_conf >= 0.75:
+                # "tebrik ediyorum" gibi güçlü pozitif ipuçlarında düzelt
+                final_sent = 'positive'
+                # güveni çok yüksek göstermeyelim
+                final_conf = max(0.6, min(0.85, final_conf - 0.05))
+
+            if final_sent == 'positive' and lex_n >= 2 and lex_p == 0 and final_conf >= 0.75:
+                final_sent = 'negative'
+                final_conf = max(0.6, min(0.85, final_conf - 0.05))
+
+            score = final_conf if final_sent == 'positive' else (-final_conf if final_sent == 'negative' else 0.0)
+
             return {
-                'sentiment': sentiment,
+                'sentiment': final_sent,
                 'score': round(score, 2),
-                'confidence': round(confidence, 2),
-                'label': result['label']  # Orijinal model etiketi
+                'confidence': round(final_conf, 2),
+                'label': best_res['label'] if best_res else 'N/A'
             }
-            
+
         except Exception as e:
             print(f"❌ Sentiment analysis error: {e}")
             return {
@@ -165,8 +237,9 @@ class NLPService:
                 tokens = tokens[-512:]
                 text = self.topic_tokenizer.decode(tokens, skip_special_tokens=True)
             
-            # Dönen yapı: [[{'label': 'LABEL_0', 'score': ...}, ...]]
-            raw_result = self.topic_pipeline(text)[0]
+            # Tüm skorları almak için top_k=None kullan (return_all_scores deprecate oldu)
+            # Dönen yapı: [{'label': 'LABEL_0', 'score': ...}, ...]
+            raw_result = self.topic_pipeline(text, top_k=None)
             
             # Skora göre sırala (azalan)
             raw_result_sorted = sorted(raw_result, key=lambda x: x['score'], reverse=True)
@@ -292,6 +365,38 @@ class NLPService:
         top_keywords = [word for word, count in keyword_counts.most_common(n)]
         
         return top_keywords
+
+    def _last_sentence(self, text: str) -> str:
+        """Basit Türkçe cümle bölme ile son cümleyi döndür."""
+        import re
+        parts = re.split(r"[\.\?!…\n]+", text)
+        parts = [p.strip() for p in parts if p and p.strip()]
+        return parts[-1] if parts else ''
+
+    def _split_sentences(self, text: str) -> list:
+        import re
+        parts = re.split(r"[\.\?!…\n]+", text)
+        parts = [p.strip() for p in parts if p and p.strip()]
+        return parts
+
+    def _lexicon_counts(self, text: str):
+        """Pozitif/negatif sözlük eşleşmelerini say."""
+        t = text.lower()
+        pos = sum(1 for w in self.positive_lexicon if w in t)
+        neg = sum(1 for w in self.negative_lexicon if w in t)
+        return pos, neg
+
+    def _preprocess_for_sentiment(self, text: str) -> str:
+        """Duygu analizi için hafif ön işleme: bkz referansları, URL, fazla boşluk."""
+        import re
+        s = text
+        # (bkz: ...) referanslarını kaldır
+        s = re.sub(r"\(bkz:\s*[^\)]+\)", " ", s, flags=re.IGNORECASE)
+        # URL'leri kaldır
+        s = re.sub(r"https?://\S+", " ", s)
+        # Fazla boşluk
+        s = re.sub(r"\s+", " ", s)
+        return s.strip()
     
     def analyze_combined(self, text: str) -> dict:
         """

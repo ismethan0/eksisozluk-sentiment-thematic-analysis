@@ -3,22 +3,53 @@ Ekşi Sözlük API Servis Katmanı
 Mevcut eksisozluk-api ile iletişim kurar
 """
 
+import os
+import time
 import requests
+import unicodedata
 from typing import Optional, Dict, List
+from requests.adapters import HTTPAdapter
+from urllib3.util.retry import Retry
 
 
 class EksiSozlukService:
     """Ekşi Sözlük API ile iletişim için servis sınıfı"""
     
-    def __init__(self, base_url="http://localhost:3000"):
+    def __init__(self, base_url: Optional[str] = None):
         """
         Servis başlatıcı
         
         Args:
             base_url (str): Ekşi Sözlük API'nin base URL'i
         """
+        # Base URL'i ortam değişkeninden veya parametreden al
+        base_url = base_url or os.getenv('EKSI_API_BASE_URL', 'http://localhost:3000')
         self.base_url = base_url.rstrip('/')
         self.api_endpoint = f"{self.base_url}/api"
+        
+        # İstek ayarları (env ile konfigüre edilebilir)
+        self.timeout = int(os.getenv('EKSI_API_TIMEOUT', '15'))  # saniye
+        self.max_retries = int(os.getenv('EKSI_API_MAX_RETRIES', '3'))
+        self.backoff_factor = float(os.getenv('EKSI_API_BACKOFF', '0.5'))
+        
+        # Devre kesici (circuit breaker) durumu
+        self._offline_until = 0.0
+        self._offline_ttl = float(os.getenv('EKSI_API_OFFLINE_TTL', '30'))  # saniye
+        
+        # Requests session + retry strategy
+        self.session = requests.Session()
+        retry = Retry(
+            total=self.max_retries,
+            connect=self.max_retries,
+            read=self.max_retries,
+            backoff_factor=self.backoff_factor,
+            status_forcelist=[429, 500, 502, 503, 504],
+            allowed_methods=["GET"],
+            raise_on_status=False,
+        )
+        adapter = HTTPAdapter(max_retries=retry)
+        self.session.mount('http://', adapter)
+        self.session.mount('https://', adapter)
         
     def search_topics(self, query: str) -> List[Dict]:
         """
@@ -31,8 +62,10 @@ class EksiSozlukService:
             list: Bulunan başlıklar
         """
         try:
+            if self._is_offline():
+                return []
             url = f"{self.api_endpoint}/ara/{query}"
-            response = requests.get(url, timeout=10)
+            response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             
             data = response.json()
@@ -42,6 +75,7 @@ class EksiSozlukService:
             return data if data else []
         except requests.RequestException as e:
             print(f"Arama hatası: {e}")
+            self._trip_offline()
             return []
     
     def autocomplete(self, query: str) -> List[Dict]:
@@ -55,14 +89,17 @@ class EksiSozlukService:
             list: Önerilen başlıklar
         """
         try:
+            if self._is_offline():
+                return []
             url = f"{self.api_endpoint}/autocomplete/{query}"
-            response = requests.get(url, timeout=10)
+            response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             
             data = response.json()
             return data if data else []
         except requests.RequestException as e:
             print(f"Autocomplete hatası: {e}")
+            self._trip_offline()
             return []
     
     def get_topic_entries(self, slug: str, page: int = 1) -> Optional[Dict]:
@@ -77,13 +114,15 @@ class EksiSozlukService:
             dict: Başlık bilgileri ve entry'ler
         """
         try:
+            if self._is_offline():
+                return None
             # Sayfa numarasını URL'e ekle
             if page > 1:
                 url = f"{self.api_endpoint}/baslik/{slug}?p={page}"
             else:
                 url = f"{self.api_endpoint}/baslik/{slug}"
             
-            response = requests.get(url, timeout=30)
+            response = self.session.get(url, timeout=max(self.timeout, 30))
             response.raise_for_status()
             
             data = response.json()
@@ -150,6 +189,12 @@ class EksiSozlukService:
                         # HTML entities'i decode et
                         import html
                         content = html.unescape(content)
+                        # Unicode normalize et (Türkçe karakter sorunlarını azaltır)
+                        content = unicodedata.normalize('NFC', content)
+                        # Sıklıkla görülen $...$ kalıntılarını temizle (vurgulama/işaret kalıntısı)
+                        content = re.sub(r'\$(\w{1,10})\$', r'\1', content)
+                        # Fazla boşlukları sadeleştir
+                        content = re.sub(r'[\t\r\f]+', ' ', content)
                     
                     normalized_entries.append({
                         'id': entry.get('id') or entry.get('entryId'),
@@ -183,6 +228,7 @@ class EksiSozlukService:
             }
         except requests.RequestException as e:
             print(f"Entry getirme hatası: {e}")
+            self._trip_offline()
             return None
         except Exception as e:
             print(f"Parse hatası: {e}")
@@ -201,13 +247,16 @@ class EksiSozlukService:
             dict: Entry bilgileri
         """
         try:
+            if self._is_offline():
+                return None
             url = f"{self.api_endpoint}/entry/{entry_id}"
-            response = requests.get(url, timeout=10)
+            response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             
             return response.json()
         except requests.RequestException as e:
             print(f"Entry getirme hatası: {e}")
+            self._trip_offline()
             return None
     
     def get_trending_topics(self) -> List[Dict]:
@@ -218,14 +267,17 @@ class EksiSozlukService:
             list: Gündem başlıkları
         """
         try:
+            if self._is_offline():
+                return []
             url = f"{self.api_endpoint}/basliklar"
-            response = requests.get(url, timeout=10)
+            response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             
             data = response.json()
             return data if isinstance(data, list) else []
         except requests.RequestException as e:
             print(f"Gündem getirme hatası: {e}")
+            self._trip_offline()
             return []
     
     def get_debe(self) -> Optional[Dict]:
@@ -236,13 +288,16 @@ class EksiSozlukService:
             dict: Debe bilgileri
         """
         try:
+            if self._is_offline():
+                return None
             url = f"{self.api_endpoint}/debe"
-            response = requests.get(url, timeout=30)  # Debe yavaş olabilir
+            response = self.session.get(url, timeout=max(self.timeout, 30))  # Debe yavaş olabilir
             response.raise_for_status()
             
             return response.json()
         except requests.RequestException as e:
             print(f"Debe getirme hatası: {e}")
+            self._trip_offline()
             return None
     
     def get_user_info(self, username: str) -> Optional[Dict]:
@@ -256,13 +311,16 @@ class EksiSozlukService:
             dict: Kullanıcı bilgileri
         """
         try:
+            if self._is_offline():
+                return None
             url = f"{self.api_endpoint}/biri/{username}"
-            response = requests.get(url, timeout=10)
+            response = self.session.get(url, timeout=self.timeout)
             response.raise_for_status()
             
             return response.json()
         except requests.RequestException as e:
             print(f"Kullanıcı bilgisi getirme hatası: {e}")
+            self._trip_offline()
             return None
     
     def check_status(self) -> str:
@@ -273,7 +331,17 @@ class EksiSozlukService:
             str: 'online' veya 'offline'
         """
         try:
-            response = requests.get(self.api_endpoint, timeout=5)
+            response = self.session.get(self.api_endpoint, timeout=5)
             return 'online' if response.status_code == 200 else 'offline'
         except:
             return 'offline'
+
+    # ---- Circuit breaker helpers ----
+    def _is_offline(self) -> bool:
+        """Devre kesici: geçici olarak offline ise talepleri reddet."""
+        now = time.time()
+        return now < self._offline_until
+
+    def _trip_offline(self):
+        """Bir hata sonrası offline durumuna geç."""
+        self._offline_until = time.time() + self._offline_ttl
