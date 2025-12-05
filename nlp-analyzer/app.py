@@ -3,6 +3,7 @@ Eksi Sozluk NLP Analiz Uygulamasi - Flask backend API
 """
 
 import os
+from dotenv import load_dotenv
 import logging
 from flask import Flask, render_template, request, jsonify
 from flask_cors import CORS
@@ -10,6 +11,8 @@ from werkzeug.middleware.proxy_fix import ProxyFix
 
 from services.nlp_service import NLPService
 from services.eksisozluk_service import EksiSozlukService
+
+load_dotenv()  # .env dosyasını yükle
 
 app = Flask(__name__)
 CORS(app, resources={r"/api/*": {"origins": os.getenv('CORS_ORIGINS', '*')}})

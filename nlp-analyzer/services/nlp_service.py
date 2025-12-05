@@ -10,45 +10,120 @@ from transformers.utils import logging as hf_logging
 
 
 class NLPService:
-    """Sadece duygu ve tema analizi yapan NLP servis sınıfı"""
-    
     def __init__(self):
-        """Servis başlatıcı - Gerçek modelleri yükle"""
-        print("🔄 Loading NLP models...")
-
-        # Transformers log seviyesini kontrol et (varsayılan ERROR)
-        log_level = os.getenv('HF_LOG_LEVEL', 'ERROR').upper()
-        if log_level == 'ERROR':
-            hf_logging.set_verbosity_error()
-        elif log_level == 'WARNING':
-            hf_logging.set_verbosity_warning()
-        elif log_level == 'INFO':
-            hf_logging.set_verbosity_info()
-        else:
-            hf_logging.set_verbosity_warning()
-
-        # Bu dosyanın konumuna göre ../models dizinini belirle
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        self.model_cache_dir = os.path.join(base_dir, "..", "models")
-        os.makedirs(self.model_cache_dir, exist_ok=True)
-        print(f"  📂 Model cache directory: {self.model_cache_dir}")
-        
         try:
-            device = 0 if torch.cuda.is_available() else -1
+            print("Loading NLP models...")
+            # HF logging seviyesini azalt
+            hf_logging.set_verbosity_error()
 
-            # Duygu analizi modeli - Türkçe XLM-RoBERTa
-            print("  📥 Loading sentiment model: incidelen/xlm-roberta-base-turkish-sentiment-analysis")
-            self.sentiment_pipeline = pipeline(
-                "sentiment-analysis",
-                model="incidelen/xlm-roberta-base-turkish-sentiment-analysis",
-                device=device,
-                use_fast=False,              # Slow tokenizer kullan (bug workaround)
-                cache_dir=self.model_cache_dir
-            )
-            print("  ✅ Sentiment model loaded")
-            
+            # Model cache
+            self.model_cache_dir = os.path.join(os.path.dirname(__file__), "..", "models")
+            os.makedirs(self.model_cache_dir, exist_ok=True)
+            print(f"  Model cache directory: {os.path.abspath(self.model_cache_dir)}")
+
+            # Device seçimi (env ile override: NLP_DEVICE=cpu|cuda)
+            env_dev = os.getenv("NLP_DEVICE", "").strip().lower()
+            if env_dev in ("cpu", "cuda"):
+                device = 0 if env_dev == "cuda" and torch.cuda.is_available() else -1
+            else:
+                device = 0 if torch.cuda.is_available() else -1
+            self.device = device
+            # Dinamik son cümle ağırlıkları (env ile konfigüre)
+            def _env_float(name: str, default: float) -> float:
+                try:
+                    return float(os.getenv(name, str(default)).strip())
+                except Exception:
+                    return default
+            self.last_weight_short = _env_float('LAST_WEIGHT_SHORT', 1.1)   # 1–3 cümle
+            self.last_weight_medium = _env_float('LAST_WEIGHT_MEDIUM', 2.0) # 4–7 cümle
+            self.last_weight_long = _env_float('LAST_WEIGHT_LONG', 3.0)     # 8+ cümle
+            if device == 0:
+                print("  Using GPU:", torch.cuda.get_device_name(0))
+            else:
+                print("  Using CPU")
+
+            # Sentiment modeli (env ile seçilebilir)
+            self.sentiment_model_name = os.getenv(
+                "SENTIMENT_MODEL_NAME",
+                "incidelen/xlm-roberta-base-turkish-sentiment-analysis"
+            ).strip()
+            print(f"  Loading sentiment model: {self.sentiment_model_name}")
+
+            trust_remote = os.getenv('HF_TRUST_REMOTE_CODE', 'true').lower() in ('1','true','yes')
+            sentiment_adapter = os.getenv('SENTIMENT_ADAPTER_NAME')
+            sentiment_num_labels = int(os.getenv('SENTIMENT_NUM_LABELS', '3'))
+
+            # Adapter varsa: base=sentiment_model_name üzerinden yükle ve adapter'ı bağla
+            if sentiment_adapter:
+                print(f"  Using PEFT adapter: {sentiment_adapter}")
+                try:
+                    from peft import PeftModel, PeftConfig
+                except ImportError:
+                    raise RuntimeError("PEFT not installed. Please run 'pip install peft'.")
+
+                tok = AutoTokenizer.from_pretrained(
+                    self.sentiment_model_name,
+                    cache_dir=self.model_cache_dir,
+                    trust_remote_code=trust_remote
+                )
+                base_cls = AutoModelForSequenceClassification.from_pretrained(
+                    self.sentiment_model_name,
+                    cache_dir=self.model_cache_dir,
+                    trust_remote_code=trust_remote,
+                    num_labels=sentiment_num_labels
+                )
+                try:
+                    _ = PeftConfig.from_pretrained(sentiment_adapter)
+                except Exception as e0:
+                    print(f"  PeftConfig load warning: {e0}")
+                model = PeftModel.from_pretrained(
+                    base_cls,
+                    sentiment_adapter,
+                    cache_dir=self.model_cache_dir
+                )
+                model.eval()
+                self.sentiment_pipeline = pipeline(
+                    "text-classification",
+                    model=model,
+                    tokenizer=tok,
+                    device=device,
+                    top_k=None
+                )
+            else:
+                # Doğrudan pipeline ile dene (trust_remote_code destekli)
+                try:
+                    self.sentiment_pipeline = pipeline(
+                        "sentiment-analysis",
+                        model=self.sentiment_model_name,
+                        tokenizer=self.sentiment_model_name,
+                        device=device,
+                        use_fast=False,
+                        cache_dir=self.model_cache_dir,
+                        trust_remote_code=trust_remote
+                    )
+                except Exception as e1:
+                    print(f"  \u26a0\ufe0f Pipeline load failed, trying Auto* loaders: {e1}")
+                    tok = AutoTokenizer.from_pretrained(
+                        self.sentiment_model_name,
+                        cache_dir=self.model_cache_dir,
+                        trust_remote_code=trust_remote
+                    )
+                    mdl = AutoModelForSequenceClassification.from_pretrained(
+                        self.sentiment_model_name,
+                        cache_dir=self.model_cache_dir,
+                        trust_remote_code=trust_remote
+                    )
+                    self.sentiment_pipeline = pipeline(
+                        "text-classification",
+                        model=mdl,
+                        tokenizer=tok,
+                        device=device,
+                        top_k=None
+                    )
+            print("  Sentiment model loaded")
+
             # Tema/Konu analizi modeli - Türkçe haber sınıflandırma (savasy)
-            print("  📥 Loading topic model: savasy/bert-turkish-text-classification")
+            print("  Loading topic model: savasy/bert-turkish-text-classification")
             self.topic_model_name = "savasy/bert-turkish-text-classification"
             self.topic_tokenizer = AutoTokenizer.from_pretrained(
                 self.topic_model_name,
@@ -58,8 +133,7 @@ class NLPService:
                 self.topic_model_name,
                 cache_dir=self.model_cache_dir
             )
-            
-            # Tüm skorları almak için return_all_scores=True
+            # return_all_scores artık deprecate; top_k=None ile tüm skorlar
             self.topic_pipeline = pipeline(
                 "text-classification",
                 model=self.topic_model,
@@ -68,8 +142,6 @@ class NLPService:
                 return_all_scores=True
             )
 
-            # Modelin label -> insan okunur tema isimleri
-            # Model İngilizce etiket döndürüyor: world, economy, culture, health, politics, sport, technology
             self.topic_code_to_label = {
                 "LABEL_0": "Dünya",
                 "LABEL_1": "Ekonomi",
@@ -79,8 +151,6 @@ class NLPService:
                 "LABEL_5": "Spor",
                 "LABEL_6": "Teknoloji",
             }
-            
-            # İngilizce -> Türkçe mapping
             self.english_to_turkish = {
                 "world": "Dünya",
                 "economy": "Ekonomi",
@@ -90,25 +160,30 @@ class NLPService:
                 "sport": "Spor",
                 "technology": "Teknoloji"
             }
-            
-            print("  ✅ Topic model loaded")
-            print("✅ All NLP models loaded successfully!\n")
-            
+
+            print("  Topic model loaded")
+            print("All NLP models loaded successfully!\n")
+
         except Exception as e:
-            print(f"❌ Error loading models: {e}")
+            print(f"Error loading models: {e}")
             raise
 
-        # Basit Türkçe duygu sözlüğü (yüksek etki eden anahtarlar)
+        # Basit Türkçe duygu sözlüğü + domain ifadeleri
         self.positive_lexicon = {
             'tebrik', 'tebrikler', 'tebrik ederim', 'tebrik ediyorum', 'harika', 'mükemmel', 'süper',
             'başarılı', 'şahane', 'muhteşem', 'beğendim', 'memnun', 'iyi', 'güzel', 'takdir', 'takdir ediyorum',
-            'olumlu', 'pozitif', 'seyirlik', 'efsane', 'kaliteli'
+            'olumlu', 'pozitif', 'seyirlik', 'efsane', 'kaliteli',
+            'memnun kaldım', 'tavsiye ederim', 'çok iyi', 'olumlu izlenim', 'fiyat/performans iyi',
+            'beklediğim gibi', 'sorunsuz', 'iyi çalışıyor', 'hızlı', 'dayanıklı', 'stabil'
         }
         self.negative_lexicon = {
             'rezalet', 'berbat', 'kötü', 'feci', 'iğrenç', 'nefret', 'beğenmedim', 'pişman', 'yetersiz',
-            'olumsuz', 'negatif', 'vasat', 'saçma', 'korkunç', 'problem', 'sorun', 'arızalı', 'şikayet'
+            'olumsuz', 'negatif', 'vasat', 'saçma', 'korkunç', 'problem', 'sorun', 'arızalı', 'şikayet',
+            'ısınma sorunu', 'ısınma problemi', 'şarjı çabuk bitiyor', 'batarya kötü', 'donuyor', 'takılıyor',
+            'yavaş', 'geri iade', 'iade ettim', 'hatalı', 'kusurlu', 'servis kötü', 'garanti sorunlu',
+            'memnun değilim', 'beklentiyi karşılamadı'
         }
-        
+
     def analyze_sentiment(self, text: str) -> dict:
         """
         Duygu analizi yap - XLM-RoBERTa modeli ile
@@ -142,57 +217,99 @@ class NLPService:
 
             # Cümle bazlı değerlendirme (çoğunluk + son cümleye ağırlık)
             sentences = self._split_sentences(text)
-            # Son 5 cümleyi kullan (uzun metinlerde hız için)
-            sentences = sentences[-5:] if len(sentences) > 5 else sentences
+            # Son 7 cümleyi kullan (uzun metinlerde hız/kalite dengesi)
+            sentences = sentences[-7:] if len(sentences) > 7 else sentences
             inputs = sentences if sentences else [text]
 
             pipe_out = self.sentiment_pipeline(inputs)
 
+            # Normalize outputs: pipeline may return list or list-of-lists
+            def to_dict(res):
+                # If already dict with 'label' and 'score'
+                if isinstance(res, dict) and 'label' in res and 'score' in res:
+                    return {'label': res['label'], 'score': float(res['score'])}
+                # If list of candidates, pick max score
+                if isinstance(res, list) and res and isinstance(res[0], dict):
+                    best = max(res, key=lambda x: float(x.get('score', 0.0)))
+                    return {'label': best.get('label', 'neutral'), 'score': float(best.get('score', 0.0))}
+                # Fallback neutral
+                return {'label': 'neutral', 'score': 0.5}
+
             # Normalize etiket
             def norm(res):
-                lbl = res['label'].lower()
-                conf = float(res['score'])
+                lbl_raw = res.get('label', 'neutral')
+                lbl = str(lbl_raw).lower().strip()
+                conf = float(res.get('score', 0.5))
+                # Map LABEL_0/1/2 to neg/neu/pos (common for 3-class Turkish models)
+                if lbl.startswith('label_'):
+                    try:
+                        idx = int(lbl.split('_')[-1])
+                        if idx == 0:
+                            return 'negative', conf
+                        if idx == 1:
+                            return 'neutral', conf
+                        if idx == 2:
+                            return 'positive', conf
+                    except Exception:
+                        pass
                 if 'pos' in lbl or 'olumlu' in lbl or 'positive' in lbl:
                     return 'positive', conf
                 if 'neg' in lbl or 'olumsuz' in lbl or 'negative' in lbl:
                     return 'negative', conf
+                if 'neutral' in lbl or 'nötr' in lbl:
+                    return 'neutral', conf
                 return 'neutral', 0.5
 
-            # Oylama: her cümle için skor topla, son cümleye 1.5x ağırlık
+            # Oylama: her cümle için skor topla, son cümleye 2.0x ağırlık (nötr kaymayı azaltmak için)
             votes = {'positive': 0.0, 'negative': 0.0, 'neutral': 0.0}
             best_res = None
             best_sent = 'neutral'
             best_conf = 0.5
+            # Dinamik son cümle ağırlığı: kısa metinlerde düşük, uzunlarda yüksek
+            total_sentences = len(pipe_out)
+            if total_sentences <= 3:
+                last_weight = self.last_weight_short
+            elif total_sentences <= 7:
+                last_weight = self.last_weight_medium
+            else:
+                last_weight = self.last_weight_long
+
             for i, res in enumerate(pipe_out):
-                s, c = norm(res)
-                w = 1.5 if i == len(pipe_out) - 1 and len(pipe_out) > 1 else 1.0
+                res_norm = to_dict(res)
+                s, c = norm(res_norm)
+                w = last_weight if i == total_sentences - 1 and total_sentences > 1 else 1.0
                 votes[s] += c * w
                 # En güçlü tek karar adayı
                 if (best_res is None) or (c > best_conf):
-                    best_res = res
+                    best_res = res_norm
                     best_sent = s
                     best_conf = c
 
             # Oy toplamına göre nihai duygu
             final_sent = max(votes.items(), key=lambda kv: kv[1])[0]
             # Eğer oy toplamı ile en güçlü tek karar çelişirse ve fark küçükse son cümleyi tercih et
-            if final_sent != best_sent and (abs(votes[final_sent] - votes[best_sent]) < 0.2):
+            if final_sent != best_sent and (abs(votes[final_sent] - votes[best_sent]) < 0.25):
                 final_sent = best_sent
                 final_conf = best_conf
             else:
-                final_conf = min(0.99, max(0.51, votes[final_sent] / max(1.0, len(pipe_out))))
+                # Nötr’e aşırı kaymayı azalt: pozitif/negatif kazandıysa minimum güveni biraz artır
+                base_conf = votes[final_sent] / max(1.0, len(pipe_out))
+                if final_sent in ('positive', 'negative'):
+                    final_conf = min(0.99, max(0.6, base_conf))
+                else:
+                    final_conf = min(0.9, max(0.4, base_conf))
 
-            # Sözlük tabanlı düzeltme (çok kuvvetli ipuçlarında)
-            lex_p, lex_n = self._lexicon_counts(inputs[-1] if inputs else text)
-            if final_sent == 'negative' and lex_p >= 2 and lex_n == 0 and final_conf >= 0.75:
-                # "tebrik ediyorum" gibi güçlü pozitif ipuçlarında düzelt
-                final_sent = 'positive'
-                # güveni çok yüksek göstermeyelim
-                final_conf = max(0.6, min(0.85, final_conf - 0.05))
+            # Sözlük tabanlı düzeltme (opsiyonel, çok kuvvetli ipuçlarında)
+            lexicon_enabled = os.getenv('SENTIMENT_LEXICON_ENABLE', 'false').lower() in ('1','true','yes')
+            if lexicon_enabled:
+                lex_p, lex_n = self._lexicon_counts(inputs[-1] if inputs else text)
+                if final_sent == 'negative' and lex_p >= 2 and lex_n == 0 and final_conf >= 0.75:
+                    final_sent = 'positive'
+                    final_conf = max(0.6, min(0.85, final_conf - 0.05))
 
-            if final_sent == 'positive' and lex_n >= 2 and lex_p == 0 and final_conf >= 0.75:
-                final_sent = 'negative'
-                final_conf = max(0.6, min(0.85, final_conf - 0.05))
+                if final_sent == 'positive' and lex_n >= 2 and lex_p == 0 and final_conf >= 0.75:
+                    final_sent = 'negative'
+                    final_conf = max(0.6, min(0.85, final_conf - 0.05))
 
             score = final_conf if final_sent == 'positive' else (-final_conf if final_sent == 'negative' else 0.0)
 
