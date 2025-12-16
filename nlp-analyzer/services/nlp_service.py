@@ -7,7 +7,7 @@ import os
 import torch
 from transformers import pipeline, AutoTokenizer, AutoModelForSequenceClassification
 from transformers.utils import logging as hf_logging
-
+from vnlp import SentenceSplitter, Normalizer
 
 class NLPService:
     def __init__(self):
@@ -15,7 +15,13 @@ class NLPService:
             print("Loading NLP models...")
             # HF logging seviyesini azalt
             hf_logging.set_verbosity_error()
-
+            
+            # VNLP araçları
+            print("  Loading VNLP tools...")
+            self.sentence_splitter = SentenceSplitter()
+            self.normalizer = Normalizer()
+            print("  VNLP tools loaded")
+            
             # Model cache
             self.model_cache_dir = os.path.join(os.path.dirname(__file__), "..", "models")
             os.makedirs(self.model_cache_dir, exist_ok=True)
@@ -133,13 +139,13 @@ class NLPService:
                 self.topic_model_name,
                 cache_dir=self.model_cache_dir
             )
-            # return_all_scores artık deprecate; top_k=None ile tüm skorlar
+            # top_k=None kullanarak tüm skorları al (return_all_scores yerine)
             self.topic_pipeline = pipeline(
                 "text-classification",
                 model=self.topic_model,
                 tokenizer=self.topic_tokenizer,
                 device=device,
-                return_all_scores=True
+                top_k=None
             )
 
             self.topic_code_to_label = {
@@ -217,8 +223,8 @@ class NLPService:
 
             # Cümle bazlı değerlendirme (çoğunluk + son cümleye ağırlık)
             sentences = self._split_sentences(text)
-            # Son 7 cümleyi kullan (uzun metinlerde hız/kalite dengesi)
-            sentences = sentences[-7:] if len(sentences) > 7 else sentences
+            # Son 10 cümleyi kullan (daha geniş bağlam)
+            sentences = sentences[-10:] if len(sentences) > 10 else sentences
             inputs = sentences if sentences else [text]
 
             pipe_out = self.sentiment_pipeline(inputs)
@@ -288,16 +294,25 @@ class NLPService:
             # Oy toplamına göre nihai duygu
             final_sent = max(votes.items(), key=lambda kv: kv[1])[0]
             # Eğer oy toplamı ile en güçlü tek karar çelişirse ve fark küçükse son cümleyi tercih et
-            if final_sent != best_sent and (abs(votes[final_sent] - votes[best_sent]) < 0.25):
+            if final_sent != best_sent and (abs(votes[final_sent] - votes[best_sent]) < 0.35):
                 final_sent = best_sent
                 final_conf = best_conf
             else:
-                # Nötr’e aşırı kaymayı azalt: pozitif/negatif kazandıysa minimum güveni biraz artır
+                # Nötr'e aşırı kaymayı azalt: pozitif/negatif kazandıysa minimum güveni artır
                 base_conf = votes[final_sent] / max(1.0, len(pipe_out))
                 if final_sent in ('positive', 'negative'):
-                    final_conf = min(0.99, max(0.6, base_conf))
+                    final_conf = min(0.99, max(0.65, base_conf))  # pos/neg minimum 0.65
                 else:
-                    final_conf = min(0.9, max(0.4, base_conf))
+                    # Neutral için daha sıkı kontrol: sadece gerçekten belirsiz durumlarda
+                    if base_conf < 0.55:  # Düşük güvenli neutral'ı en yüksek skorlu karar lehine çevir
+                        alternatives = sorted(votes.items(), key=lambda kv: kv[1], reverse=True)
+                        if len(alternatives) > 1 and alternatives[1][1] > 0.3:
+                            final_sent = alternatives[1][0]  # İkinci en yüksek skoru al
+                            final_conf = min(0.85, max(0.60, alternatives[1][1] / max(1.0, len(pipe_out))))
+                        else:
+                            final_conf = min(0.85, max(0.45, base_conf))
+                    else:
+                        final_conf = min(0.85, max(0.50, base_conf))
 
             # Sözlük tabanlı düzeltme (opsiyonel, çok kuvvetli ipuçlarında)
             lexicon_enabled = os.getenv('SENTIMENT_LEXICON_ENABLE', 'false').lower() in ('1','true','yes')
@@ -491,10 +506,16 @@ class NLPService:
         return parts[-1] if parts else ''
 
     def _split_sentences(self, text: str) -> list:
-        import re
-        parts = re.split(r"[\.\?!…\n]+", text)
-        parts = [p.strip() for p in parts if p and p.strip()]
-        return parts
+        """Türkçe için VNLP ile yüksek doğruluklu cümle bölme."""
+        try:
+            sentences = self.sentence_splitter.split(text)
+            # Trim + boşluk temizliği
+            return [s.strip() for s in sentences if s.strip()]
+        except Exception:
+            # VNLP bir hata verirse regex fallback olsun
+            import re
+            parts = re.split(r"[\.\?!…\n]+", text)
+            return [p.strip() for p in parts if p.strip()]
 
     def _lexicon_counts(self, text: str):
         """Pozitif/negatif sözlük eşleşmelerini say."""
@@ -504,9 +525,22 @@ class NLPService:
         return pos, neg
 
     def _preprocess_for_sentiment(self, text: str) -> str:
-        """Duygu analizi için hafif ön işleme: bkz referansları, URL, fazla boşluk."""
+        """Duygu analizi için VNLP Normalizer ile gelişmiş ön işleme."""
         import re
         s = text
+        
+        try:
+            # VNLP Normalizer ile yazım hatalarını düzelt ve normalizasyon yap
+            s = self.normalizer.normalize(
+                s,
+                correct_typos=True,          # Yazım hatalarını düzelt
+                deasciify=True,              # Türkçe karakterleri düzelt (e.g., "cok" -> "çok")
+                remove_accent_marks=False,   # Aksanları koruy
+                lower_case=True             # Büyük-küçük harf yapısını koru
+            )
+        except Exception as e:
+            print(f"⚠️ Normalizer error: {e}, using basic preprocessing")
+        
         # (bkz: ...) referanslarını kaldır
         s = re.sub(r"\(bkz:\s*[^\)]+\)", " ", s, flags=re.IGNORECASE)
         # URL'leri kaldır
