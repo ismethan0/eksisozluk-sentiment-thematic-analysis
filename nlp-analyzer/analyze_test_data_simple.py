@@ -5,6 +5,7 @@ Rkategori olmadan çalışır
 
 import os
 import sys
+import unicodedata
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -152,6 +153,37 @@ def analyze_test_data_simple(input_file='test2.xlsx', output_file='Sonuc.xlsx'):
                 
             except ImportError:
                 print("   💡 Install scikit-learn: pip install scikit-learn")
+
+        print("\n🎯 Category Accuracy:")
+        if 'Rkategori' in df_clean.columns:
+            valid_cat = df_clean[(df_clean['Tkategori'] != '') & (df_clean['Rkategori'].notna()) & (df_clean['Rkategori'] != '')].copy()
+            if len(valid_cat) > 0:
+                def _normalize(label: object) -> str:
+                    text = str(label).strip().lower().replace('’', "'").replace('‘', "'")
+                    text = unicodedata.normalize('NFKD', text)
+                    return text.encode('ascii', 'ignore').decode()
+
+                valid_cat['Rkategori_norm'] = valid_cat['Rkategori'].apply(_normalize)
+                valid_cat['Tkategori_norm'] = valid_cat['Tkategori'].apply(_normalize)
+
+                cat_correct = (valid_cat['Rkategori_norm'] == valid_cat['Tkategori_norm']).sum()
+                cat_total = len(valid_cat)
+                cat_accuracy = cat_correct / cat_total
+
+                print(f"   Total: {cat_total}")
+                print(f"   Correct: {cat_correct}")
+                print(f"   Accuracy: {cat_accuracy:.2%}")
+
+                try:
+                    from sklearn.metrics import classification_report
+                    print("\n📈 Category Classification Report:")
+                    print(classification_report(valid_cat['Rkategori_norm'], valid_cat['Tkategori_norm'], zero_division=0))
+                except ImportError:
+                    print("   💡 Install scikit-learn: pip install scikit-learn")
+            else:
+                print("   ⚠️ No valid category labels to compare")
+        else:
+            print("   ⚠️ Rkategori column not found; skipping category accuracy")
         
         print(f"\n✅ Complete! Results saved to: {output_file}")
         

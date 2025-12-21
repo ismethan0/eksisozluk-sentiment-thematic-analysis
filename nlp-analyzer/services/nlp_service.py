@@ -58,6 +58,8 @@ class NLPService:
             trust_remote = os.getenv('HF_TRUST_REMOTE_CODE', 'true').lower() in ('1','true','yes')
             sentiment_adapter = os.getenv('SENTIMENT_ADAPTER_NAME')
             sentiment_num_labels = int(os.getenv('SENTIMENT_NUM_LABELS', '3'))
+            self.sentiment_max_length = int(os.getenv('SENTIMENT_MAX_LEN', '256'))
+            self.topic_max_length = int(os.getenv('TOPIC_MAX_LEN', '256'))
 
             # Adapter varsa: base=sentiment_model_name üzerinden yükle ve adapter'ı bağla
             if sentiment_adapter:
@@ -191,20 +193,7 @@ class NLPService:
         }
 
     def analyze_sentiment(self, text: str) -> dict:
-        """
-        Duygu analizi yap - XLM-RoBERTa modeli ile
-        
-        Args:
-            text (str): Analiz edilecek metin
-            
-        Returns:
-            dict: {
-                'sentiment': 'positive'|'negative'|'neutral',
-                'score': float (-1 ile 1 arası),
-                'confidence': float (0 ile 1 arası),
-                'label': str (modelin orijinal etiketi)
-            }
-        """
+        """XLM-RoBERTa tabanlı duygu analizi gerçekleştir."""
         try:
             # Ön işleme: bkz referansları, URL'ler, tekrarlı boşluklar
             text = self._preprocess_for_sentiment(text)
@@ -227,7 +216,36 @@ class NLPService:
             sentences = sentences[-10:] if len(sentences) > 10 else sentences
             inputs = sentences if sentences else [text]
 
-            pipe_out = self.sentiment_pipeline(inputs)
+            try:
+                pipe_out = self.sentiment_pipeline(
+                    inputs,
+                    truncation=True,
+                    max_length=self.sentiment_max_length,
+                    padding=True
+                )
+            except RuntimeError as re:
+                msg = str(re).lower()
+                if 'device-side assert' in msg or 'cuda error' in msg:
+                    print("⚠️ CUDA error in sentiment pipeline, retrying on CPU with truncation")
+                    try:
+                        # CPU fallback reuses same model/tokenizer
+                        cpu_pipe = pipeline(
+                            "text-classification",
+                            model=self.sentiment_pipeline.model.cpu(),
+                            tokenizer=self.sentiment_pipeline.tokenizer,
+                            device=-1,
+                            top_k=None
+                        )
+                        pipe_out = cpu_pipe(
+                            inputs,
+                            truncation=True,
+                            max_length=self.sentiment_max_length,
+                            padding=True
+                        )
+                    except Exception:
+                        raise re
+                else:
+                    raise
 
             # Normalize outputs: pipeline may return list or list-of-lists
             def to_dict(res):
@@ -365,13 +383,40 @@ class NLPService:
             # Token bazlı kesme (daha akıllı)
             tokens = self.topic_tokenizer.encode(text, add_special_tokens=True)
             if len(tokens) > 512:
-                # Son 512 token'ı al (genelde sonuç yazının sonunda)
-                tokens = tokens[-512:]
+                tokens = tokens[:512]
                 text = self.topic_tokenizer.decode(tokens, skip_special_tokens=True)
-            
-            # Tüm skorları almak için top_k=None kullan (return_all_scores deprecate oldu)
-            # Dönen yapı: [{'label': 'LABEL_0', 'score': ...}, ...]
-            raw_result = self.topic_pipeline(text, top_k=None)
+
+            try:
+                raw_result = self.topic_pipeline(
+                    text,
+                    top_k=None,
+                    truncation=True,
+                    max_length=self.topic_max_length,
+                    padding=True
+                )
+            except RuntimeError as re:
+                msg = str(re).lower()
+                if 'device-side assert' in msg or 'cuda error' in msg:
+                    print("⚠️ CUDA error in topic pipeline, retrying on CPU with truncation")
+                    try:
+                        cpu_pipe = pipeline(
+                            "text-classification",
+                            model=self.topic_model.cpu(),
+                            tokenizer=self.topic_tokenizer,
+                            device=-1,
+                            top_k=None
+                        )
+                        raw_result = cpu_pipe(
+                            text,
+                            top_k=None,
+                            truncation=True,
+                            max_length=self.topic_max_length,
+                            padding=True
+                        )
+                    except Exception:
+                        raise re
+                else:
+                    raise
             
             # Skora göre sırala (azalan)
             raw_result_sorted = sorted(raw_result, key=lambda x: x['score'], reverse=True)
@@ -435,15 +480,7 @@ class NLPService:
             }
     
     def _get_turkish_label(self, label: str) -> str:
-        """
-        Model etiketini Türkçe'ye çevir
-        
-        Args:
-            label (str): Model etiketi (LABEL_0, world, economy, vb.)
-            
-        Returns:
-            str: Türkçe etiket
-        """
+        # Model etiketini Türkçe karşılığına çevir
         # Önce LABEL_X formatını kontrol et
         if label in self.topic_code_to_label:
             return self.topic_code_to_label[label]
@@ -518,28 +555,22 @@ class NLPService:
             return [p.strip() for p in parts if p.strip()]
 
     def _lexicon_counts(self, text: str):
-        """Pozitif/negatif sözlük eşleşmelerini say."""
+        # Pozitif/negatif sözlük eşleşmelerini say
         t = text.lower()
         pos = sum(1 for w in self.positive_lexicon if w in t)
         neg = sum(1 for w in self.negative_lexicon if w in t)
         return pos, neg
 
     def _preprocess_for_sentiment(self, text: str) -> str:
-        """Duygu analizi için VNLP Normalizer ile gelişmiş ön işleme."""
+        # Duygu analizi öncesi VNLP tabanlı metin temizliği
         import re
         s = text
         
         try:
-            # VNLP Normalizer ile yazım hatalarını düzelt ve normalizasyon yap
-            s = self.normalizer.normalize(
-                s,
-                correct_typos=True,          # Yazım hatalarını düzelt
-                deasciify=True,              # Türkçe karakterleri düzelt (e.g., "cok" -> "çok")
-                remove_accent_marks=False,   # Aksanları koruy
-                lower_case=True             # Büyük-küçük harf yapısını koru
-            )
+            s = self._vnlp_normalize(s)
         except Exception as e:
             print(f"⚠️ Normalizer error: {e}, using basic preprocessing")
+            s = s.lower() if isinstance(s, str) else ""
         
         # (bkz: ...) referanslarını kaldır
         s = re.sub(r"\(bkz:\s*[^\)]+\)", " ", s, flags=re.IGNORECASE)
@@ -548,20 +579,37 @@ class NLPService:
         # Fazla boşluk
         s = re.sub(r"\s+", " ", s)
         return s.strip()
+
+    def _vnlp_normalize(self, text: str) -> str:
+        # VNLP fonksiyonlarını tek tek çağırarak metni normalize et
+        import re
+
+        if not isinstance(text, str):
+            text = "" if text is None else str(text)
+
+        # Lower-case (Türkçe karakter uyumlu)
+        s = Normalizer.lower_case(text)
+
+        # ASCII'ye kaymış karakterleri düzelt
+        tokens = s.split()
+        tokens = Normalizer.deasciify(tokens)
+
+        # Sayıları yazıya dönüştür
+        tokens = self.normalizer.convert_numbers_to_words(tokens)
+
+        # Listeyi yeniden stringe çevir
+        s = " ".join(tokens)
+
+        # Aksan ve noktalama temizliği
+        s = Normalizer.remove_accent_marks(s)
+        s = Normalizer.remove_punctuations(s)
+
+        # Fazla boşlukları sadeleştir
+        s = re.sub(r"\s+", " ", s)
+        return s.strip()
     
     def analyze_combined(self, text: str) -> dict:
-        """
-        Hem duygu hem tema analizini birlikte yap
-        
-        Args:
-            text (str): Analiz edilecek metin
-            
-        Returns:
-            dict: {
-                'sentiment': {...},
-                'theme': {...}
-            }
-        """
+        # Hem duygu hem tema analizini birlikte döndür
         sentiment = self.analyze_sentiment(text)
         theme = self.analyze_theme(text)
         

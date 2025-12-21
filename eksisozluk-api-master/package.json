@@ -14,7 +14,7 @@
     "crawler",
     "express"
   ],
-  "author": "Oguz Colak <oguzcoluck@gmail.com>",
+  "author": "Ismet Han",
   "license": "ISC",
   "dependencies": {
     "axios": "^0.21.1",

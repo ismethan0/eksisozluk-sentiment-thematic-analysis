@@ -5,6 +5,7 @@ duygu analizini yapıp Twitter sütununa yazan script
 
 import os
 import sys
+import unicodedata
 import pandas as pd
 from dotenv import load_dotenv
 
@@ -232,11 +233,19 @@ def analyze_test_data(input_file='TestVeri_Duygulu.xlsx', output_file='TestVeri_
                 # Kategori doğruluğu (Rkategori vs Tkategori)
                 print("\n   === CATEGORY ACCURACY ===")
                 valid_cat_mask = (df_sampled['Tkategori'] != '') & (df_sampled['Rkategori'] != '')
-                valid_cat_df = df_sampled[valid_cat_mask]
+                valid_cat_df = df_sampled[valid_cat_mask].copy()
                 
                 if len(valid_cat_df) > 0:
-                    true_cat = valid_cat_df['Rkategori']
-                    pred_cat = valid_cat_df['Tkategori']
+                    def _normalize(label: object) -> str:
+                        text = str(label).strip().lower().replace('’', "'").replace('‘', "'")
+                        text = unicodedata.normalize('NFKD', text)
+                        return text.encode('ascii', 'ignore').decode()
+
+                    valid_cat_df['Rkategori_norm'] = valid_cat_df['Rkategori'].apply(_normalize)
+                    valid_cat_df['Tkategori_norm'] = valid_cat_df['Tkategori'].apply(_normalize)
+
+                    true_cat = valid_cat_df['Rkategori_norm']
+                    pred_cat = valid_cat_df['Tkategori_norm']
                     
                     cat_correct = (true_cat == pred_cat).sum()
                     cat_total = len(valid_cat_df)
