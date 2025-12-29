@@ -453,33 +453,6 @@ app.logger.info("Bilgi mesajı")
 app.logger.error("Hata mesajı")
 ```
 
----
-
-## 🎯 Gelecek Özellikler
-
-- [ ] Gelişmiş grafik ve görselleştirmeler (Chart.js)
-- [ ] Kullanıcı hesapları ve favori başlıklar
-- [ ] Export (PDF, Excel) özelliği
-- [ ] Real-time analiz (WebSocket)
-- [ ] Çoklu dil desteği
-- [ ] Dark mode
-- [ ] Cache mekanizması (Redis)
-- [ ] Rate limiting
-- [ ] Docker containerization
-- [ ] CI/CD pipeline
-
----
-
-## 🤝 Katkıda Bulunma
-
-1. Fork edin
-2. Feature branch oluşturun (`git checkout -b feature/amazing`)
-3. Commit edin (`git commit -m 'Add amazing feature'`)
-4. Push edin (`git push origin feature/amazing`)
-5. Pull Request açın
-
----
-
 ## 📝 Notlar
 
 ### Önemli Uyarılar
@@ -496,19 +469,7 @@ app.logger.error("Hata mesajı")
 - Büyük veri setleri için cache kullanın
 - Model yükleme süresi ilk çağrıda uzun olabilir
 
----
 
-## 📄 Lisans
-
-Bu proje MIT lisansı altında lisanslanmıştır.
-
----
-
-## 👤 Yazar
-
-**Öğrenci Projesi** - Doğal Dil İşleme Dersi
-
----
 
 ## 🙏 Teşekkürler
 
@@ -516,15 +477,6 @@ Bu proje MIT lisansı altında lisanslanmıştır.
 - Flask ve Python topluluğu
 - Font Awesome - İkonlar
 
----
-
-## 📞 İletişim
-
-Sorularınız için:
-- 📧 Email: your.email@example.com
-- 🐙 GitHub: [@yourusername](https://github.com/yourusername)
-
----
 
 <div align="center">
 
