@@ -33,6 +33,15 @@ const nextPageBtn = document.getElementById('nextPage');
 const pageNumbers = document.getElementById('pageNumbers');
 const statsSection = document.getElementById('statsSection');
 
+// Update CSS variable for header offset dynamically
+function updateHeaderOffset() {
+    const header = document.querySelector('.header');
+    if (header) {
+        const h = header.offsetHeight;
+        document.documentElement.style.setProperty('--header-offset', `${h}px`);
+    }
+}
+
 // Debounce utility
 function debounce(func, delay) {
     let timeoutId;
@@ -69,6 +78,10 @@ function showError(message) {
 // Initialize App
 async function initApp() {
     console.log('🚀 Uygulama başlatılıyor...');
+
+    // Set header offset for fixed header spacing
+    updateHeaderOffset();
+    window.addEventListener('resize', updateHeaderOffset);
 
     // Load trending topics
     await loadTrendingTopics();

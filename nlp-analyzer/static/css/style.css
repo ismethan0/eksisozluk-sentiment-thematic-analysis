@@ -40,6 +40,8 @@
     /* Transitions */
     --transition-fast: 0.2s ease;
     --transition-normal: 0.3s ease;
+    /* Layout */
+    --header-offset: 120px;
 }
 
 /* Reset & Base Styles */
@@ -78,9 +80,6 @@ body {
     color: white;
     padding: var(--spacing-lg) 0;
     box-shadow: var(--shadow-md);
-    position: sticky;
-    top: 0;
-    z-index: 100;
 }
 
 .header-content {
@@ -120,6 +119,13 @@ body {
 .main-content {
     flex: 1;
     padding: var(--spacing-xl) 0;
+    min-height: 70vh; /* Footer için alan bırak */
+}
+/* Remove side paddings for main container */
+.main-content .container {
+    max-width: 100%;
+    padding-left: 0;
+    padding-right: 0;
 }
 
 /* Main Layout - Sidebar + Content */
@@ -141,6 +147,12 @@ body {
     
     .content-area {
         order: 1;
+        grid-template-columns: 1fr;
+    }
+    #statsSection {
+        grid-column: 1;
+        position: static;
+        margin-top: var(--spacing-lg);
     }
 }
 
@@ -149,7 +161,7 @@ body {
    ========================================== */
 .sidebar {
     position: sticky;
-    top: 120px;
+    top: var(--spacing-sm);
 }
 
 .sidebar-card {
@@ -157,6 +169,8 @@ body {
     padding: var(--spacing-md);
     border-radius: var(--radius-lg);
     box-shadow: var(--shadow-md);
+    max-height: calc(100vh - 4rem);
+    overflow: auto;
 }
 
 .sidebar-title {
@@ -212,6 +226,21 @@ body {
 
 .content-area {
     min-width: 0;
+    display: grid;
+    grid-template-columns: 1fr 320px;
+    gap: var(--spacing-lg);
+    align-items: start;
+}
+/* Search spans both columns */
+.search-section { grid-column: 1 / -1; }
+/* Results left column */
+#resultsSection { grid-column: 1; }
+/* Stats right column and sticky */
+#statsSection {
+    grid-column: 2;
+    position: sticky;
+    top: var(--spacing-sm);
+    align-self: start;
 }
 
 /* ==========================================

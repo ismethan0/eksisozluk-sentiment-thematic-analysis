@@ -594,8 +594,9 @@ class NLPService:
         tokens = s.split()
         tokens = Normalizer.deasciify(tokens)
 
-        # Sayıları yazıya dönüştür
-        tokens = self.normalizer.convert_numbers_to_words(tokens)
+        # Sayıları yazıya dönüştürme adımını tamamen devre dışı bırak
+        # (Duygu analizinde olası gecikmeleri ve sapmaları önlemek için)
+        # İstenirse bu adım yeniden eklenebilir.
 
         # Listeyi yeniden stringe çevir
         s = " ".join(tokens)

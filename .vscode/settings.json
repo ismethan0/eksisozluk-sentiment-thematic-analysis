@@ -1,0 +1,7 @@
+{
+  "python.defaultInterpreterPath": "C\\Users\\ismet\\anaconda3\\envs\\eksisozluk\\python.exe",
+  "python.terminal.activateEnvironment": true,
+  "python.analysis.indexing": true,
+  "python.testing.pytestEnabled": false,
+  "python.testing.unittestEnabled": false
+}
